@@ -1,0 +1,5 @@
+rsgain (3.4-1) unstable; urgency=medium
+
+  * Initial release. (Closes: #1053697)
+
+ -- Hugh McMaster <hmc@debian.org>  Mon, 09 Oct 2023 22:00:54 +1100
