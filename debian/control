@@ -1,0 +1,39 @@
+Source: rsgain
+Section: sound
+Priority: optional
+Maintainer: Hugh McMaster <hmc@debian.org>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake,
+ libavcodec-dev,
+ libavformat-dev,
+ libavutil-dev,
+ libebur128-dev,
+ libfmt-dev,
+ libinih-dev,
+ libswresample-dev,
+ libtag1-dev,
+ pkg-config
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/complexlogic/rsgain
+Vcs-Git: https://salsa.debian.org/hmc/rsgain.git
+Vcs-Browser: https://salsa.debian.org/hmc/rsgain
+
+Package: rsgain
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: ReplayGain 2.0 loudness normalizer
+ rsgain (really simple gain) is a loudness normalizer that scans digital
+ audio streams and calculates loudness-normalized gain and loudness peak
+ values according to the EBU R128/ITU-R BS.1770 standard (-18 LUFS).
+ .
+ rsgain applies ReplayGain 2.0 loudness metadata tags to audio and video files
+ but does not modify the audio stream.
+ .
+ rsgain supports the AIFF, APE, FLAC, MP2, MP3, M4A, Musepack, Ogg, Opus, TAK,
+ WAV, WavPack and WMA audio formats. Video files with compatible audio streams
+ are also supported.
+ .
+ rsgain comes with several scan presets based on the default, EBU R128 and
+ legacy 'loudgain' scan settings.
