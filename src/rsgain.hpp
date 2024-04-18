@@ -1,8 +1,8 @@
 #pragma once
 
-#define CMD_HELP(CMDL, CMDS, MSG) fmt::print("  {}{:<8} {:<20}{}  {}.\n", COLOR_YELLOW, CMDS ",", CMDL, COLOR_OFF, MSG);
-#define CMD_CMD(CMD, MSG) fmt::print("  {}{:<22}{}  {}.\n", COLOR_YELLOW, CMD, COLOR_OFF, MSG);
-#define CMD_CONT(MSG) fmt::print("  {}{:<8} {:<20}{}  {}.\n", COLOR_YELLOW, "", "", COLOR_OFF, MSG);
+#define CMD_HELP(CMDL, CMDS, MSG) print("  {}{:<8} {:<20}{}  {}.\n", COLOR_YELLOW, CMDS ",", CMDL, COLOR_OFF, MSG);
+#define CMD_CMD(CMD, MSG) print("  {}{:<22}{}  {}.\n", COLOR_YELLOW, CMD, COLOR_OFF, MSG);
+#define CMD_CONT(MSG) print("  {}{:<8} {:<20}{}  {}.\n", COLOR_YELLOW, "", "", COLOR_OFF, MSG);
 #define MATCH(x,y) !strcmp(x,y)
 #define STR_CAT(a) #a
 #define STR(a) STR_CAT(a)
@@ -34,6 +34,7 @@ struct Config {
 	unsigned int id3v2version;
 	char opus_mode;
 	bool skip_mp4;
+	bool preserve_mtimes;
 };
 
 

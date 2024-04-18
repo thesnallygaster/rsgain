@@ -65,8 +65,8 @@
 #include "output.hpp"
 
 #define TAGLIB_VERSION (TAGLIB_MAJOR_VERSION * 10000 + TAGLIB_MINOR_VERSION * 100 + TAGLIB_PATCH_VERSION)
-#define FORMAT_GAIN(gain) fmt::format("{:.2f} dB", gain)
-#define FORMAT_PEAK(peak) fmt::format("{:.6f}", peak)
+#define FORMAT_GAIN(gain) format("{:.2f} dB", gain)
+#define FORMAT_PEAK(peak) format("{:.6f}", peak)
 #define OPUS_HEADER_SIZE 47
 #define OGG_ROW_SIZE 4
 #define OPUS_HEAD_OFFSET 7 * OGG_ROW_SIZE
@@ -78,7 +78,7 @@
 
 #define MP4_ATOM_STRING "----:com.apple.iTunes:"
 #define FORMAT_MP4_TAG(s, tag) s.append(MP4_ATOM_STRING).append(tag)
-#define tag_error(t) output_error("Couldn't write to: {}", t.path)
+#define tag_error(t) output_error("Couldn't write to: {}", t.path.string())
 
 using RGTagsArray = std::array<TagLib::String, 7>;
 
@@ -167,6 +167,10 @@ static_assert((size_t) R128Tag::MAX_VAL == R128_STRING.size());
 
 void tag_track(ScanJob::Track &track, const Config &config)
 {
+    std::filesystem::file_time_type mtime;
+    if (config.preserve_mtimes)
+        mtime = std::filesystem::last_write_time(track.path);
+
     switch (track.type) {
         case FileType::MP2:
         case FileType::MP3:
@@ -252,6 +256,8 @@ void tag_track(ScanJob::Track &track, const Config &config)
         default:
             break;
     }
+    if (config.preserve_mtimes)
+        std::filesystem::last_write_time(track.path, mtime);
 }
 
 bool tag_exists(const ScanJob::Track &track)
@@ -302,7 +308,7 @@ template<typename T>
 static bool tag_exists_id3(const ScanJob::Track &track)
 {
     const TagLib::ID3v2::Tag *tag = nullptr;
-    T file(track.path.c_str(), false);
+    T file(track.path.string().c_str(), false);
     if constexpr (std::is_same_v<T, TagLib::RIFF::AIFF::File>)
         tag = file.tag();
     else
@@ -329,7 +335,7 @@ static bool tag_exists_xiph(const ScanJob::Track &track)
 {
     bool ret = false;
     const TagLib::Ogg::XiphComment *tag = nullptr;
-    T file(track.path.c_str(), false);
+    T file(track.path.string().c_str(), false);
     if constexpr(std::is_same_v<T, TagLib::FLAC::File>)
         tag = file.xiphComment();
     else
@@ -360,7 +366,7 @@ static bool tag_exists_mp4(const ScanJob::Track &track)
         }
     }
 
-    TagLib::MP4::File file(track.path.c_str(), false);
+    TagLib::MP4::File file(track.path.string().c_str(), false);
     const TagLib::MP4::Tag *tag = file.tag();
     if (tag) {
         for (const auto &key : keys) {
@@ -374,7 +380,7 @@ static bool tag_exists_mp4(const ScanJob::Track &track)
 template<typename T>
 static bool tag_exists_ape(const ScanJob::Track &track)
 {
-    T file(track.path.c_str(), false);
+    T file(track.path.string().c_str(), false);
     const TagLib::APE::Tag *tag = file.APETag();
     if (tag) {
         const auto &map = tag->itemListMap();
@@ -385,7 +391,7 @@ static bool tag_exists_ape(const ScanJob::Track &track)
 
 static bool tag_exists_asf(const ScanJob::Track &track)
 {
-    TagLib::ASF::File file(track.path.c_str(), false);
+    TagLib::ASF::File file(track.path.string().c_str(), false);
     const TagLib::ASF::Tag *tag = file.tag();
     return tag->contains(RG_STRING_UPPER[static_cast<int>(RGTag::TRACK_GAIN)]) ||
     tag->contains(RG_STRING_LOWER[static_cast<int>(RGTag::TRACK_GAIN)]);
@@ -404,8 +410,10 @@ static void write_rg_tags(const ScanResult &result, const Config &config, T&& wr
 
 static bool tag_mp3(ScanJob::Track &track, const Config &config)
 {
-    TagLib::MPEG::File file(track.path.c_str());
+    TagLib::MPEG::File file(track.path.string().c_str());
     TagLib::ID3v2::Tag *tag = file.ID3v2Tag(true);
+    if (!tag)
+        return false;
     unsigned int id3v2version = config.id3v2version;
     if (id3v2version == ID3V2_KEEP)
         id3v2version = tag->isEmpty() ? 3: tag->header()->majorVersion();
@@ -425,8 +433,10 @@ static bool tag_mp3(ScanJob::Track &track, const Config &config)
 
 static bool tag_flac(ScanJob::Track &track, const Config &config) 
 {
-    TagLib::FLAC::File file(track.path.c_str());
+    TagLib::FLAC::File file(track.path.string().c_str());
     TagLib::Ogg::XiphComment *tag = file.xiphComment(true);
+    if (!tag)
+        return false;
     tag_clear<TagLib::FLAC::File>(tag);
     if (config.tag_mode == 'i')
         tag_write<TagLib::FLAC::File>(tag, track.result, config);
@@ -435,15 +445,14 @@ static bool tag_flac(ScanJob::Track &track, const Config &config)
 
 template<typename T>
 static bool tag_ogg(ScanJob::Track &track, const Config &config) {
-    T file(track.path.c_str());
+    T file(track.path.string().c_str());
     TagLib::Ogg::XiphComment *tag = nullptr;
-    if constexpr(std::is_same_v<T, TagLib::FileRef>) {
+    if constexpr(std::is_same_v<T, TagLib::FileRef>)
         tag = dynamic_cast<TagLib::Ogg::XiphComment*>(file.tag());
-        if (!tag)
-            return false;
-    }
     else
         tag = file.tag();
+    if (!tag)
+        return false;
     tag_clear<T>(tag);
     if (config.tag_mode == 'i' && (!std::is_same_v<T, TagLib::Ogg::Opus::File> || 
     (config.opus_mode != 't' && config.opus_mode != 'a')))
@@ -456,13 +465,15 @@ static bool tag_ogg(ScanJob::Track &track, const Config &config) {
 
     int16_t gain = config.opus_mode == 'a' && config.do_album ? 
     GAIN_TO_Q78(track.result.album_gain) : GAIN_TO_Q78(track.result.track_gain);
-    return set_opus_header_gain(track.path.c_str(), gain);
+    return set_opus_header_gain(track.path.string().c_str(), gain);
 }
 
 static bool tag_mp4(ScanJob::Track &track, const Config &config)
 {
-    TagLib::MP4::File file(track.path.c_str());
+    TagLib::MP4::File file(track.path.string().c_str());
     TagLib::MP4::Tag *tag = file.tag();
+    if (!tag)
+        return false;
     tag_clear(tag);
     if (config.tag_mode == 'i')
         tag_write(tag, track.result, config);
@@ -473,8 +484,10 @@ static bool tag_mp4(ScanJob::Track &track, const Config &config)
 template <typename T>
 static bool tag_apev2(ScanJob::Track &track, const Config &config)
 {
-    T file(track.path.c_str());
+    T file(track.path.string().c_str());
     TagLib::APE::Tag *tag = file.APETag(true);
+    if (!tag)
+        return false;
     tag_clear(tag);
     if (config.tag_mode == 'i')
         tag_write(tag, track.result, config);
@@ -483,15 +496,17 @@ static bool tag_apev2(ScanJob::Track &track, const Config &config)
     else {
         bool ret = file.save();
         if (ret)
-            ret = set_mpc_packet_rg(track.path.c_str());
+            ret = set_mpc_packet_rg(track.path.string().c_str());
         return ret;
     }
 }
 
 static bool tag_wma(ScanJob::Track &track, const Config &config)
 {
-    TagLib::ASF::File file(track.path.c_str());
+    TagLib::ASF::File file(track.path.string().c_str());
     TagLib::ASF::Tag *tag = file.tag();
+    if (!tag)
+        return false;
     tag_clear(tag);
     if (config.tag_mode == 'i')
         tag_write(tag, track.result, config);
@@ -502,12 +517,14 @@ static bool tag_wma(ScanJob::Track &track, const Config &config)
 template<typename T>
 static bool tag_riff(ScanJob::Track &track, const Config &config)
 {
-    T file(track.path.c_str());
-    TagLib::ID3v2::Tag *tag;
+    T file(track.path.string().c_str());
+    TagLib::ID3v2::Tag *tag = nullptr;
     if constexpr (std::is_same_v<T, TagLib::RIFF::WAV::File>)
         tag = file.ID3v2Tag();
     else if constexpr (std::is_same_v<T, TagLib::RIFF::AIFF::File>)
         tag = file.tag();
+    if (!tag)
+        return false;
     unsigned int id3v2version = config.id3v2version;
     if (id3v2version == ID3V2_KEEP)
         id3v2version = tag->isEmpty() ? 3: tag->header()->majorVersion();
@@ -618,12 +635,12 @@ static void tag_write(TagLib::Ogg::XiphComment *tag, const ScanResult &result, c
     // Opus RFC 7845 tag
     if (std::is_same_v<T, TagLib::Ogg::Opus::File> && (config.opus_mode == 'r' || config.opus_mode == 's')) {
         tag->addField(R128_STRING[static_cast<int>(R128Tag::TRACK_GAIN)], 
-            fmt::format("{}", GAIN_TO_Q78(result.track_gain))
+            format("{}", GAIN_TO_Q78(result.track_gain))
         );
 
         if (config.do_album) {
             tag->addField(R128_STRING[static_cast<int>(R128Tag::ALBUM_GAIN)], 
-                fmt::format("{}", GAIN_TO_Q78(result.album_gain))
+                format("{}", GAIN_TO_Q78(result.album_gain))
             );
         }
     }
