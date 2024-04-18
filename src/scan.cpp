@@ -100,7 +100,7 @@ ScanJob* ScanJob::factory(const std::filesystem::path &path)
         if (entry.is_regular_file() && entry.path().has_extension()
         && ((file_type = determine_filetype(entry.path().extension().string())) != FileType::INVALID)
         && !(file_type == FileType::M4A && get_config(file_type).skip_mp4 && entry.path().extension().string() == ".mp4")) {
-            tracks.emplace_back(entry.path().string(), file_type);
+            tracks.emplace_back(entry.path(), file_type);
             extensions.insert(file_type);
         }
     }
@@ -110,7 +110,7 @@ ScanJob* ScanJob::factory(const std::filesystem::path &path)
     const Config &config = get_config(file_type);
     if (config.tag_mode == 'n')
         return nullptr;
-    return new ScanJob(path.string(), tracks, config, file_type);
+    return new ScanJob(path, tracks, config, file_type);
 }
 
 ScanJob* ScanJob::factory(char **files, size_t nb_files, const Config &config)
@@ -121,10 +121,16 @@ ScanJob* ScanJob::factory(char **files, size_t nb_files, const Config &config)
     std::unordered_set<FileType> types;
     for (size_t i = 0; i < nb_files; i++) {
         path = files[i];
-        if ((file_type = determine_filetype(path.extension().string())) == FileType::INVALID)
+        if (!std::filesystem::exists(path)) {
+            output_error("File '{}' does not exist", path.string());
+            return nullptr;
+        }
+        else if ((file_type = determine_filetype(path.extension().string())) == FileType::INVALID) {
             output_error("File '{}' is not of a supported type", files[i]);
+            return nullptr;
+        }
         else {
-            tracks.emplace_back(path.string(), file_type);
+            tracks.emplace_back(path, file_type);
             types.insert(file_type);
         }
     }
@@ -205,16 +211,16 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
     // gain with no way to disable. To get the actual loudness of the audio signal,
     // we need to set the header output gain to 0 dB before decoding
     if (type == FileType::OPUS && config.tag_mode != 's')
-        set_opus_header_gain(path.c_str(), 0);
+        set_opus_header_gain(path.string().c_str(), 0);
     
     if (m)
         lk = new std::unique_lock<std::mutex>(*m, std::defer_lock);
     if (output_progress)
-        output_ok("Scanning '{}'", path);
+        output_ok("Scanning '{}'", path.string());
 
     if (lk)
         lk->lock();
-    rc = avformat_open_input(&format_ctx, fmt::format("file:{}", path).c_str(), nullptr, nullptr);
+    rc = avformat_open_input(&format_ctx, format("file:{}", path.string()).c_str(), nullptr, nullptr);
     if (rc < 0) {
         output_fferror(rc, "Could not open input");
         goto end;
@@ -284,7 +290,7 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
         output_ok("Stream #{}: {}, {}{:L} Hz, {} ch",
             stream_id, 
             codec->long_name, 
-            codec_ctx->bits_per_raw_sample > 0 ? fmt::format("{} bit, ", codec_ctx->bits_per_raw_sample) : "", 
+            codec_ctx->bits_per_raw_sample > 0 ? format("{} bit, ", codec_ctx->bits_per_raw_sample) : "", 
             codec_ctx->sample_rate, 
             nb_channels
         );
@@ -495,7 +501,7 @@ void ScanJob::tag_tracks()
     std::FILE *stream = nullptr;
     if (config.tab_output != OutputType::NONE) {
         if (config.tab_output == OutputType::FILE) {
-            std::filesystem::path output_file = std::filesystem::path(path) / "replaygain.csv";
+            std::filesystem::path output_file = path / "replaygain.csv";
             stream = fopen(output_file.string().c_str(), "wb");
         }
         else
@@ -512,59 +518,59 @@ void ScanJob::tag_tracks()
     bool tab_output = config.tab_output != OutputType::NONE && stream != nullptr;
     bool human_output = !multithread && !quiet && config.tag_mode != 'd';
     if (config.sort_alphanum)
-        std::sort(tracks.begin(), tracks.end(), [](const auto &a, const auto &b){ return a.path < b.path; });
+        std::sort(tracks.begin(), tracks.end(), [](const auto &a, const auto &b){ return a.path.string() < b.path.string(); });
     for (Track &track : tracks) {
         if (config.tag_mode != 's')
             tag_track(track, config);
 
         if (tab_output) {
             // Filename;Loudness;Gain (dB);Peak;Peak (dB);Peak Type;Clipping Adjustment;
-            fmt::print(stream, "{}\t", std::filesystem::path(track.path).filename().string());
-            track.result.track_loudness == -HUGE_VAL ? fmt::print(stream, "-∞\t") : fmt::print(stream, "{:.2f}\t", track.result.track_loudness);
-            fmt::print(stream, "{:.2f}\t", track.result.track_gain);
-            fmt::print(stream, "{:.6f}\t", track.result.track_peak);
-            track.result.track_peak == 0.0 ? fmt::print(stream, "-∞\t") : fmt::print(stream, "{:.2f}\t", 20.0 * log10(track.result.track_peak));
-            fmt::print(stream, "{}\t", config.true_peak ? "True" : "Sample");
-            fmt::print(stream, "{}\n", track.tclip ? "Y" : "N");
+            print(stream, "{}\t", track.path.filename().string());
+            track.result.track_loudness == -HUGE_VAL ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", track.result.track_loudness);
+            print(stream, "{:.2f}\t", track.result.track_gain);
+            print(stream, "{:.6f}\t", track.result.track_peak);
+            track.result.track_peak == 0.0 ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", 20.0 * log10(track.result.track_peak));
+            print(stream, "{}\t", config.true_peak ? "True" : "Sample");
+            print(stream, "{}\n", track.tclip ? "Y" : "N");
             if (config.do_album && ((size_t) (&track - &tracks[0]) == (nb_files - 1))) {
-                fmt::print(stream, "{}\t", "Album");
-                track.result.album_loudness == -HUGE_VAL ? fmt::print(stream, "-∞\t") : fmt::print(stream, "{:.2f}\t", track.result.album_loudness);
-                fmt::print(stream, "{:.2f}\t", track.result.album_gain);
-                fmt::print(stream, "{:.6f}\t", track.result.album_peak);
-                track.result.album_peak == 0.0 ? fmt::print(stream, "-∞\t") : fmt::print(stream, "{:.2f}\t", 20.0 * log10(track.result.album_peak));
-                fmt::print(stream, "{}\t", config.true_peak ? "True" : "Sample");
-                fmt::print(stream, "{}\n", track.aclip ? "Y" : "N");
+                print(stream, "{}\t", "Album");
+                track.result.album_loudness == -HUGE_VAL ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", track.result.album_loudness);
+                print(stream, "{:.2f}\t", track.result.album_gain);
+                print(stream, "{:.6f}\t", track.result.album_peak);
+                track.result.album_peak == 0.0 ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", 20.0 * log10(track.result.album_peak));
+                print(stream, "{}\t", config.true_peak ? "True" : "Sample");
+                print(stream, "{}\n", track.aclip ? "Y" : "N");
             }
         } 
         
         // Human-readable output
         if (human_output) {
-            fmt::print("\nTrack: {}\n", track.path);
-            fmt::print("  Loudness: {} LUFS\n", track.result.track_loudness == -HUGE_VAL ? "   -∞" : fmt::format("{:8.2f}", track.result.track_loudness));
-            fmt::print("  Peak:     {:8.6f} ({} dB)\n",
+            print("\nTrack: {}\n", track.path.string());
+            print("  Loudness: {} LUFS\n", track.result.track_loudness == -HUGE_VAL ? "   -∞" : format("{:8.2f}", track.result.track_loudness));
+            print("  Peak:     {:8.6f} ({} dB)\n",
                 track.result.track_peak,
-                track.result.track_peak == 0.0 ? "-∞" : fmt::format("{:.2f}", 20.0 * log10(track.result.track_peak))
+                track.result.track_peak == 0.0 ? "-∞" : format("{:.2f}", 20.0 * log10(track.result.track_peak))
             );
-            fmt::print("  Gain:     {:8.2f} dB {}{}\n", 
+            print("  Gain:     {:8.2f} dB {}{}\n", 
                 track.result.track_gain,
-                track.type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? fmt::format("({})", GAIN_TO_Q78(track.result.track_gain)) : "",
+                track.type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? format("({})", GAIN_TO_Q78(track.result.track_gain)) : "",
                 track.tclip ? " (adjusted to prevent clipping)" : ""
             );
 
             if (config.do_album && ((size_t) (&track - &tracks[0]) == (nb_files - 1))) {
-                fmt::print("\nAlbum:\n");
-                fmt::print("  Loudness: {} LUFS\n", track.result.album_loudness == -HUGE_VAL ? "   -∞" : fmt::format("{:8.2f}", track.result.album_loudness));
-                fmt::print("  Peak:     {:8.6f} ({} dB)\n",
+                print("\nAlbum:\n");
+                print("  Loudness: {} LUFS\n", track.result.album_loudness == -HUGE_VAL ? "   -∞" : format("{:8.2f}", track.result.album_loudness));
+                print("  Peak:     {:8.6f} ({} dB)\n",
                     track.result.album_peak,
-                    track.result.album_peak == 0.0 ? "-∞" : fmt::format("{:.2f}", 20.0 * log10(track.result.album_peak))
+                    track.result.album_peak == 0.0 ? "-∞" : format("{:.2f}", 20.0 * log10(track.result.album_peak))
                 );
-                fmt::print("  Gain:     {:8.2f} dB {}{}\n", 
+                print("  Gain:     {:8.2f} dB {}{}\n", 
                     track.result.album_gain,
-                    type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? fmt::format("({})", GAIN_TO_Q78(track.result.album_gain)) : "",
+                    type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? format("({})", GAIN_TO_Q78(track.result.album_gain)) : "",
                     track.aclip ? " (adjusted to prevent clipping)" : ""
                 );
             }
-            fmt::print("\n");
+            print("\n");
         }
     }
     if (config.tab_output == OutputType::FILE && stream != nullptr)
@@ -574,7 +580,7 @@ void ScanJob::tag_tracks()
 void ScanJob::update_data(ScanData &data)
 {
     if (error) {
-        data.error_directories.push_back(path);
+        data.error_directories.push_back(path.string());
         return;
     }
     data.files += nb_files;

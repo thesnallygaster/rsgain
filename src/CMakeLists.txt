@@ -28,7 +28,6 @@ if (WIN32)
     ${LIBSWRESAMPLE}
     ${TAGLIB}
     ${LIBEBUR128}
-    ${FMT}
     ${GETOPT}
     ${INIH}
     FDK-AAC::fdk-aac
@@ -51,9 +50,24 @@ elseif (UNIX)
     PkgConfig::TAGLIB
     PkgConfig::LIBEBUR128
     PkgConfig::INIH
-    PkgConfig::FMT
     Threads::Threads
   )
+  if (NOT USE_STD_FORMAT)
+    target_link_libraries(${EXECUTABLE_TITLE} PkgConfig::FMT)
+  endif ()
+  if (STRIP)
+    add_custom_command(TARGET ${EXECUTABLE_TITLE}
+      POST_BUILD
+      COMMAND "${STRIP}" "${PROJECT_BINARY_DIR}/${EXECUTABLE_TITLE}"
+    )
+  endif ()
+  if (INSTALL_MANPAGE)
+    add_custom_command(TARGET ${EXECUTABLE_TITLE}
+      POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy "${PROJECT_SOURCE_DIR}/docs/${EXECUTABLE_TITLE}.1" "${PROJECT_BINARY_DIR}"
+      COMMAND "${GZIP}" -f "${PROJECT_BINARY_DIR}/${EXECUTABLE_TITLE}.1"
+    )
+  endif ()
 endif()
 set (EXECUTABLE_OUTPUT_PATH "${PROJECT_BINARY_DIR}")
 string(TIMESTAMP BUILD_DATE "%Y-%m-%d")
