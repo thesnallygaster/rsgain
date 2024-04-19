@@ -1,3 +1,20 @@
+rsgain (3.5-1) unstable; urgency=medium
+
+  * New upstream version 3.5.
+  * debian/control:
+    - Build-Depend on pkgconf instead pkg-config.
+    - Raise Standards-Version to 4.7.0 (no changes needed).
+  * debian/copyright: Update for 2024.
+  * debian/rsgain.1: Remove man page (now included in upstream source).
+  * debian/rules:
+    - Remove dh_auto_install override.
+    - Set -DCMAKE_BUILD_TYPE=Release.
+    - Set -DINSTALL_MANPAGE.
+  * debian/watch: Update pattern matching for GitHub.
+  * Remove debian/install and debian/manpages.
+
+ -- Hugh McMaster <hmc@debian.org>  Sat, 20 Apr 2024 22:48:22 +1000
+
 rsgain (3.4-1) unstable; urgency=medium
 
   * Initial release. (Closes: #1053697)
