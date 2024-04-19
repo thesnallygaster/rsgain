@@ -14,7 +14,7 @@ Build-Depends:
  libswresample-dev,
  libtag1-dev,
  pkgconf
-Standards-Version: 4.6.2
+Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Homepage: https://github.com/complexlogic/rsgain
 Vcs-Git: https://salsa.debian.org/hmc/rsgain.git
