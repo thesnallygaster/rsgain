@@ -1,3 +1,11 @@
+rsgain (3.5.1-1) unstable; urgency=high
+
+  * New upstream version 3.5.1.
+    - Fix header gain calculation for multichannel Opus files.
+  * debian/watch: Handle the major.minor.patch version scheme.
+
+ -- Hugh McMaster <hmc@debian.org>  Mon, 10 Jun 2024 15:25:07 +1000
+
 rsgain (3.5-1) unstable; urgency=medium
 
   * New upstream version 3.5.
