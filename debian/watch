@@ -1,3 +1,3 @@
 version=4
 
-https://github.com/complexlogic/rsgain/tags .*/v?(\d.*)@ARCHIVE_EXT@
+https://github.com/complexlogic/rsgain/tags .*/v?(\d\S+)+@ARCHIVE_EXT@
