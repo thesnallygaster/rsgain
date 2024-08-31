@@ -104,12 +104,6 @@ jobs:
             package_ext: .deb
             vcpkg_features: fmt;
 
-          - name: Fedora
-            docker_image: fedora:39
-            package_type: RPM
-            package_ext: .rpm
-            vcpkg_features: fmt;
-
           - name: Static
             docker_image: debian:bullseye
             package_type: TXZ
@@ -133,9 +127,6 @@ jobs:
         run: |
           if [[ "${{matrix.config.name}}" == "Debian" ]]; then
             apt update && apt install -y curl zip unzip gzip tar build-essential git cmake pkg-config libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libebur128-dev libinih-dev binutils
-          fi
-          if [[ "${{matrix.config.name}}" == "Fedora" ]]; then
-            dnf install -y curl zip unzip gzip tar git make pkg-config gcc-c++ fedora-packager rpmdevtools cmake libavcodec-free-devel libavformat-free-devel libswresample-free-devel libavutil-free-devel libebur128-devel inih-devel
           fi
           if [[ "${{matrix.config.name}}" == "Static" ]]; then
             apt update && apt install -y curl zip unzip tar build-essential git cmake pkg-config python3 nasm binutils

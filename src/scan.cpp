@@ -55,7 +55,13 @@ extern "C" {
 #include "output.hpp"
 #include "tag.hpp"
 
-#define output_fferror(e, msg) char errbuf[256]; av_strerror(e, errbuf, sizeof(errbuf)); output_error(msg ": {}", errbuf)
+template <typename T>
+constexpr void output_fferror(int error, T&& msg)
+{
+    char errbuf[512];
+    av_strerror(error, errbuf, sizeof(errbuf));
+    output_error("{}: {}", msg, errbuf);
+}
 #define OLD_CHANNEL_LAYOUT LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 18)
 #define OUTPUT_FORMAT AV_SAMPLE_FMT_S16
 
@@ -99,7 +105,8 @@ ScanJob* ScanJob::factory(const std::filesystem::path &path)
     for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator(path)) {
         if (entry.is_regular_file() && entry.path().has_extension()
         && ((file_type = determine_filetype(entry.path().extension().string())) != FileType::INVALID)
-        && !(file_type == FileType::M4A && get_config(file_type).skip_mp4 && entry.path().extension().string() == ".mp4")) {
+        && !(file_type == FileType::M4A && get_config(file_type).skip_mp4 && entry.path().extension().string() == ".mp4")
+        && !(entry.path().filename().string().starts_with("._"))) {
             tracks.emplace_back(entry.path(), file_type);
             extensions.insert(file_type);
         }
@@ -220,9 +227,10 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
 
     if (lk)
         lk->lock();
-    rc = avformat_open_input(&format_ctx, format("file:{}", path.string()).c_str(), nullptr, nullptr);
+    rc = avformat_open_input(&format_ctx, rsgain::format("file:{}", path.string()).c_str(), nullptr, nullptr);
     if (rc < 0) {
-        output_fferror(rc, "Could not open input");
+        if (!multithread)
+            output_fferror(rc, "Could not open input");
         goto end;
     }
 
@@ -232,14 +240,16 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
 
     rc = avformat_find_stream_info(format_ctx, nullptr);
     if (rc < 0) {
-        output_fferror(rc, "Could not find stream info");
+        if (!multithread)
+            output_fferror(rc, "Could not find stream info");
         goto end;
     }
 
     // Select the best audio stream
     stream_id = av_find_best_stream(format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, &codec, 0);
     if (stream_id < 0) {
-        output_error("Could not find audio stream");
+        if (!multithread)
+            output_error("Could not find audio stream");
         goto end;
     }
     stream = format_ctx->streams[stream_id];
@@ -249,7 +259,8 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
     do {
         codec_ctx = avcodec_alloc_context3(codec);
         if (!codec_ctx) {
-            output_error("Could not allocate audio codec context");
+            if (!multithread)
+                output_error("Could not allocate audio codec context");
             goto end;
         }
         avcodec_parameters_to_context(codec_ctx, stream->codecpar);
@@ -273,7 +284,8 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
                     }
                 }
             }
-            output_fferror(rc, "Could not open codec");
+            if (!multithread)
+                output_fferror(rc, "Could not open codec");
             goto end;
         }
         repeat = false;
@@ -290,7 +302,7 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
         output_ok("Stream #{}: {}, {}{:L} Hz, {} ch",
             stream_id, 
             codec->long_name, 
-            codec_ctx->bits_per_raw_sample > 0 ? format("{} bit, ", codec_ctx->bits_per_raw_sample) : "", 
+            codec_ctx->bits_per_raw_sample > 0 ? rsgain::format("{} bit, ", codec_ctx->bits_per_raw_sample) : "", 
             codec_ctx->sample_rate, 
             nb_channels
         );
@@ -323,13 +335,15 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
         );
 #endif
         if (!swr) {
-            output_error("Could not allocate libswresample context");
+            if (!multithread)
+                output_error("Could not allocate libswresample context");
             goto end;
         }
 
         rc = swr_init(swr);
         if (rc < 0) {
-            output_fferror(rc, "Could not open libswresample context");
+            if (!multithread)
+                output_fferror(rc, "Could not open libswresample context");
             goto end;
         }
     }
@@ -344,21 +358,24 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
         EBUR128_MODE_I | peak_mode
     );
     if (!ebur128) {
-        output_error("Could not initialize libebur128 scanner");
+        if (!multithread)
+            output_error("Could not initialize libebur128 scanner");
         goto end;
     }
 
     // Allocate AVPacket structure
     packet = av_packet_alloc();
     if (!packet) {
-        output_error("Could not allocate packet");
+        if (!multithread)
+            output_error("Could not allocate packet");
         goto end;
     }
 
     // Alocate AVFrame structure
     frame = av_frame_alloc();
     if (!frame) {
-        output_error("Could not allocate frame");
+        if (!multithread)
+            output_error("Could not allocate frame");
         goto end;
     }
 
@@ -394,7 +411,8 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
                             );
                             swr_out_data[0] = (uint8_t*) av_malloc(out_size);
                             if (swr_convert(swr, swr_out_data, frame->nb_samples, (const uint8_t**) frame->data, frame->nb_samples) < 0) {
-                                output_error("Could not convert audio frame");
+                                if (!multithread)
+                                    output_error("Could not convert audio frame");
                                 av_free(swr_out_data[0]);
                                 goto end;
                             }
@@ -525,52 +543,52 @@ void ScanJob::tag_tracks()
 
         if (tab_output) {
             // Filename;Loudness;Gain (dB);Peak;Peak (dB);Peak Type;Clipping Adjustment;
-            print(stream, "{}\t", track.path.filename().string());
-            track.result.track_loudness == -HUGE_VAL ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", track.result.track_loudness);
-            print(stream, "{:.2f}\t", track.result.track_gain);
-            print(stream, "{:.6f}\t", track.result.track_peak);
-            track.result.track_peak == 0.0 ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", 20.0 * log10(track.result.track_peak));
-            print(stream, "{}\t", config.true_peak ? "True" : "Sample");
-            print(stream, "{}\n", track.tclip ? "Y" : "N");
+            rsgain::print(stream, "{}\t", track.path.filename().string());
+            track.result.track_loudness == -HUGE_VAL ? rsgain::print(stream, "-∞\t") : rsgain::print(stream, "{:.2f}\t", track.result.track_loudness);
+            rsgain::print(stream, "{:.2f}\t", track.result.track_gain);
+            rsgain::print(stream, "{:.6f}\t", track.result.track_peak);
+            track.result.track_peak == 0.0 ? rsgain::print(stream, "-∞\t") : rsgain::print(stream, "{:.2f}\t", 20.0 * log10(track.result.track_peak));
+            rsgain::print(stream, "{}\t", config.true_peak ? "True" : "Sample");
+            rsgain::print(stream, "{}\n", track.tclip ? "Y" : "N");
             if (config.do_album && ((size_t) (&track - &tracks[0]) == (nb_files - 1))) {
-                print(stream, "{}\t", "Album");
-                track.result.album_loudness == -HUGE_VAL ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", track.result.album_loudness);
-                print(stream, "{:.2f}\t", track.result.album_gain);
-                print(stream, "{:.6f}\t", track.result.album_peak);
-                track.result.album_peak == 0.0 ? print(stream, "-∞\t") : print(stream, "{:.2f}\t", 20.0 * log10(track.result.album_peak));
-                print(stream, "{}\t", config.true_peak ? "True" : "Sample");
-                print(stream, "{}\n", track.aclip ? "Y" : "N");
+                rsgain::print(stream, "{}\t", "Album");
+                track.result.album_loudness == -HUGE_VAL ? rsgain::print(stream, "-∞\t") : rsgain::print(stream, "{:.2f}\t", track.result.album_loudness);
+                rsgain::print(stream, "{:.2f}\t", track.result.album_gain);
+                rsgain::print(stream, "{:.6f}\t", track.result.album_peak);
+                track.result.album_peak == 0.0 ? rsgain::print(stream, "-∞\t") : rsgain::print(stream, "{:.2f}\t", 20.0 * log10(track.result.album_peak));
+                rsgain::print(stream, "{}\t", config.true_peak ? "True" : "Sample");
+                rsgain::print(stream, "{}\n", track.aclip ? "Y" : "N");
             }
         } 
         
         // Human-readable output
         if (human_output) {
-            print("\nTrack: {}\n", track.path.string());
-            print("  Loudness: {} LUFS\n", track.result.track_loudness == -HUGE_VAL ? "   -∞" : format("{:8.2f}", track.result.track_loudness));
-            print("  Peak:     {:8.6f} ({} dB)\n",
+            rsgain::print("\nTrack: {}\n", track.path.string());
+            rsgain::print("  Loudness: {} LUFS\n", track.result.track_loudness == -HUGE_VAL ? "   -∞" : rsgain::format("{:8.2f}", track.result.track_loudness));
+            rsgain::print("  Peak:     {:8.6f} ({} dB)\n",
                 track.result.track_peak,
-                track.result.track_peak == 0.0 ? "-∞" : format("{:.2f}", 20.0 * log10(track.result.track_peak))
+                track.result.track_peak == 0.0 ? "-∞" : rsgain::format("{:.2f}", 20.0 * log10(track.result.track_peak))
             );
-            print("  Gain:     {:8.2f} dB {}{}\n", 
+            rsgain::print("  Gain:     {:8.2f} dB {}{}\n", 
                 track.result.track_gain,
-                track.type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? format("({})", GAIN_TO_Q78(track.result.track_gain)) : "",
+                track.type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? rsgain::format("({})", GAIN_TO_Q78(track.result.track_gain)) : "",
                 track.tclip ? " (adjusted to prevent clipping)" : ""
             );
 
             if (config.do_album && ((size_t) (&track - &tracks[0]) == (nb_files - 1))) {
-                print("\nAlbum:\n");
-                print("  Loudness: {} LUFS\n", track.result.album_loudness == -HUGE_VAL ? "   -∞" : format("{:8.2f}", track.result.album_loudness));
-                print("  Peak:     {:8.6f} ({} dB)\n",
+                rsgain::print("\nAlbum:\n");
+                rsgain::print("  Loudness: {} LUFS\n", track.result.album_loudness == -HUGE_VAL ? "   -∞" : rsgain::format("{:8.2f}", track.result.album_loudness));
+                rsgain::print("  Peak:     {:8.6f} ({} dB)\n",
                     track.result.album_peak,
-                    track.result.album_peak == 0.0 ? "-∞" : format("{:.2f}", 20.0 * log10(track.result.album_peak))
+                    track.result.album_peak == 0.0 ? "-∞" : rsgain::format("{:.2f}", 20.0 * log10(track.result.album_peak))
                 );
-                print("  Gain:     {:8.2f} dB {}{}\n", 
+                rsgain::print("  Gain:     {:8.2f} dB {}{}\n", 
                     track.result.album_gain,
-                    type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? format("({})", GAIN_TO_Q78(track.result.album_gain)) : "",
+                    type == FileType::OPUS && (config.opus_mode == 'r' || config.opus_mode == 's') ? rsgain::format("({})", GAIN_TO_Q78(track.result.album_gain)) : "",
                     track.aclip ? " (adjusted to prevent clipping)" : ""
                 );
             }
-            print("\n");
+            rsgain::print("\n");
         }
     }
     if (config.tab_output == OutputType::FILE && stream != nullptr)
