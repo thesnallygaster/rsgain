@@ -1,3 +1,9 @@
+rsgain (3.5.2-1) unstable; urgency=medium
+
+  * New upstream version 3.5.2.
+
+ -- Hugh McMaster <hmc@debian.org>  Sat, 31 Aug 2024 22:04:28 +1000
+
 rsgain (3.5.1-1) unstable; urgency=high
 
   * New upstream version 3.5.1.
