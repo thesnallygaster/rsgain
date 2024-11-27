@@ -1,3 +1,9 @@
+rsgain (3.5.3-1) unstable; urgency=medium
+
+  * New upstream version 3.5.3
+
+ -- Damian Duży <dame@zakonfeniksa.org>  Wed, 27 Nov 2024 15:08:13 +0100
+
 rsgain (3.5.2-1) unstable; urgency=medium
 
   * New upstream version 3.5.2.
