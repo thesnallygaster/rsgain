@@ -1,3 +1,11 @@
+rsgain (3.6-1) unstable; urgency=medium
+
+  * New upstream version 3.6:
+    - New "dual mono" option (-d) to treat mono files as stereo.
+  * debian/copyright: Update for 2025.
+
+ -- Hugh McMaster <hmc@debian.org>  Sat, 15 Feb 2025 19:51:10 +1100
+
 rsgain (3.5.3-1) unstable; urgency=medium
 
   * New upstream version 3.5.3.
