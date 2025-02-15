@@ -177,10 +177,20 @@ bool ScanJob::scan(std::mutex *ffmpeg_mutex)
                 }
             }
         }
+        ScanReturn ret;
+        std::vector<size_t> remove;
         for (Track &track : tracks) {
-            error = !track.scan(config, ffmpeg_mutex);
-            if (error)
+            ret = track.scan(config, ffmpeg_mutex);
+            if (ret == ScanReturn::ERR) {
+                error = true;
                 return false;
+            }
+            else if (ret == ScanReturn::NO_STREAM)
+                remove.push_back(&track - &tracks[0]);
+        }
+        for (auto it = remove.rbegin(); it != remove.rend(); ++it) {
+            tracks.erase(tracks.begin() + *it);
+            nb_files--;
         }
         calculate_loudness();
     }
@@ -189,12 +199,12 @@ bool ScanJob::scan(std::mutex *ffmpeg_mutex)
     return true;
 }
 
-bool ScanJob::Track::scan(const Config &config, std::mutex *m)
+ScanReturn ScanJob::Track::scan(const Config &config, std::mutex *m)
 {
     ProgressBar progress_bar;
     int rc, stream_id = -1;
     uint8_t *swr_out_data[1];
-    bool ret = false;
+    ScanReturn ret = ScanReturn::ERR;
     bool repeat = false;
     int peak_mode;
     double time_base;
@@ -253,7 +263,8 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
     stream_id = av_find_best_stream(format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, &codec, 0);
     if (stream_id < 0) {
         if (!multithread)
-            output_error("Could not find audio stream");
+            output_warn("Could not find audio stream\n");
+        ret = ScanReturn::NO_STREAM;
         goto end;
     }
     stream = format_ctx->streams[stream_id];
@@ -366,6 +377,8 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
             output_error("Could not initialize libebur128 scanner");
         goto end;
     }
+    if (nb_channels == 1 && config.dual_mono)
+        ebur128_set_channel(ebur128, 0, EBUR128_DUAL_MONO);
 
     // Allocate AVPacket structure
     packet = av_packet_alloc();
@@ -446,7 +459,7 @@ bool ScanJob::Track::scan(const Config &config, std::mutex *m)
     if (output_progress)
         progress_bar.complete();
 
-    ret = true;
+    ret = ScanReturn::SUCCESS;
 end:
     av_packet_free(&packet);
     av_frame_free(&frame);
@@ -543,7 +556,7 @@ void ScanJob::tag_tracks()
         std::sort(tracks.begin(), tracks.end(), [](const auto &a, const auto &b){ return a.path.string() < b.path.string(); });
     for (Track &track : tracks) {
         if (config.tag_mode != 's')
-            tag_track(track, config);
+            error |= !tag_track(track, config);
 
         if (tab_output) {
             // Filename;Loudness;Gain (dB);Peak;Peak (dB);Peak Type;Clipping Adjustment;
@@ -620,6 +633,8 @@ void ScanJob::update_data(ScanData &data)
         for (const Track &track : tracks) {
             data.total_gain += track.result.track_gain;
             data.total_peak += track.result.track_peak;
+            if (track.result.track_loudness != -HUGE_VAL)
+                data.total_loudness += track.result.track_loudness;
             track.result.track_gain > 0.0 ? data.total_positive++ : data.total_negative++;
         }
     }

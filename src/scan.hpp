@@ -35,12 +35,19 @@ struct ScanResult {
 	double album_loudness;
 };
 
+enum class ScanReturn {
+	ERR,
+	NO_STREAM,
+	SUCCESS
+};
+
 struct ScanData {
     size_t files = 0;
 	size_t skipped = 0;
     size_t clipping_adjustments = 0;
     double total_gain = 0.0;
     double total_peak = 0.0;
+    double total_loudness = 0.0;
     size_t total_negative = 0;
     size_t total_positive = 0;
     std::vector<std::string> error_directories;
@@ -61,7 +68,7 @@ class ScanJob {
 			bool aclip = false;
 
 			Track(const std::filesystem::path &path, FileType type) : path(path), type(type), ebur128(nullptr, free_ebur128) {};
-			bool scan(const Config &config, std::mutex *ffmpeg_mutex);
+			ScanReturn scan(const Config &config, std::mutex *ffmpeg_mutex);
 			void calculate_loudness(const Config &config);
 		};
 
