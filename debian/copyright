@@ -6,7 +6,7 @@ License: BSD-2-Clause
 Files: *
 Copyright: 2014 Alessandro Ghedini
            2019 Matthias C. Hormann
-           2022-2024 complexlogic
+           2022-2025 complexlogic
 License: BSD-2-Clause
 Comment: * loudgain v0.1 by Alessandro Ghedini (GitHub/ghedo).
          * loudgain v0.1 forked by Matthias C. Hormann (GitHub/Moonbase59)
@@ -14,7 +14,7 @@ Comment: * loudgain v0.1 by Alessandro Ghedini (GitHub/ghedo).
          * rsgain forked from Moonbase59/loudgain v0.6.8 by complexlogic.
 
 Files: debian/*
-Copyright: 2023-2024 Hugh McMaster <hmc@debian.org>
+Copyright: 2023-2025 Hugh McMaster <hmc@debian.org>
 License: GPL-2.0-or-later
 
 Files: src/external/CRC.h
